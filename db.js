@@ -1,4 +1,4 @@
-// db.js � Postgres via env/DATABASE_URL (Render-ready)
+// db.js – Postgres via env/DATABASE_URL (Render-ready)
 import pkg from 'pg';
 const { Pool } = pkg;
 
@@ -34,4 +34,14 @@ export async function initDb() {
     createdAt TIMESTAMPTZ NOT NULL,
     updatedAt TIMESTAMPTZ NOT NULL
   )`);
+}
+
+// 👉 für Tests: Pool sauber schließen (sonst bleibt Jest „offen“)
+export async function closeDb() {
+    try { await pool.end(); } catch { }
+}
+
+// 👉 optional für Tests: alles zurücksetzen
+export async function resetDb() {
+    await pool.query('TRUNCATE tickets, users RESTART IDENTITY CASCADE;');
 }
