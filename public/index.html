@@ -31,6 +31,9 @@
             background: var(--primary);
             color: #fff;
             padding: 16px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
         .container {
@@ -78,6 +81,11 @@
                 color: var(--text);
             }
 
+            button[disabled] {
+                opacity: 0.6;
+                cursor: not-allowed;
+            }
+
         .badge {
             padding: 4px 10px;
             border-radius: 999px;
@@ -100,41 +108,53 @@
             margin: 0 0 10px;
         }
     </style>
-    <!-- React UMD (kein Build nötig) -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
 </head>
 <body>
-    <header><strong>Ticketing</strong> – einfach & schnell</header>
-    <div class="container">
-        <div id="app"></div>
-    </div>
+    <header>
+        <span><strong>Ticketing</strong> – einfach & schnell</span>
+        <span id="userBadge" class="muted"></span>
+    </header>
+    <div class="container"><div id="app"></div></div>
 
     <script>
         const e = React.createElement;
 
-        function api(path, options) {
-            return fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options }).then(r => {
-                if (!r.ok) throw new Error('HTTP ' + r.status);
+        // --- Auth-State (Token + User) ---
+        function loadAuth() { try { return JSON.parse(localStorage.getItem('auth') || 'null'); } catch { return null; } }
+        function saveAuth(a) { localStorage.setItem('auth', JSON.stringify(a)); }
+        function clearAuth() { localStorage.removeItem('auth'); }
+
+        function api(path, options = {}) {
+            const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+            const auth = loadAuth();
+            if (auth?.token) headers['Authorization'] = 'Bearer ' + auth.token;
+            return fetch(path, { ...options, headers }).then(async r => {
+                if (!r.ok) { const txt = await r.text().catch(() => ''); throw new Error(`HTTP ${r.status} ${txt}`); }
                 return r.status === 204 ? null : r.json();
             });
         }
 
-        function useTickets() {
-            const [tickets, setTickets] = React.useState([]);
-            const [statusFilter, setStatusFilter] = React.useState('');
-            const [q, setQ] = React.useState('');
-
-            const load = React.useCallback(() => {
-                const params = new URLSearchParams();
-                if (statusFilter) params.set('status', statusFilter);
-                if (q) params.set('q', q);
-                api('/api/tickets' + (params.toString() ? ('?' + params.toString()) : ''))
-                    .then(setTickets).catch(console.error);
-            }, [statusFilter, q]);
-
-            React.useEffect(load, [load]);
-            return { tickets, setTickets, statusFilter, setStatusFilter, q, setQ, reload: load };
+        function Login({ onLogin }) {
+            const [username, setUsername] = React.useState('');
+            const [password, setPassword] = React.useState('');
+            const submit = async (ev) => {
+                ev.preventDefault();
+                try {
+                    const res = await api('/api/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+                    saveAuth(res); onLogin(res);
+                } catch (err) { alert('Login fehlgeschlagen'); }
+            };
+            return e('form', { className: 'card', onSubmit: submit },
+                e('h3', null, 'Anmelden'),
+                e('div', { className: 'row' },
+                    e('input', { placeholder: 'Benutzername', value: username, onChange: e => setUsername(e.target.value), style: { flex: 1, minWidth: 150 } }),
+                    e('input', { placeholder: 'Passwort', type: 'password', value: password, onChange: e => setPassword(e.target.value), style: { flex: 1, minWidth: 150 } }),
+                    e('button', { type: 'submit' }, 'Login')
+                ),
+                e('p', { className: 'muted' }, 'Demo: admin/admin123 oder user/user123')
+            );
         }
 
         function NewTicket({ onCreated }) {
@@ -157,50 +177,93 @@
             );
         }
 
-        function TicketCard({ t, onChange, onDelete }) {
+        function TicketCard({ t, canAdmin, canClose, onChange, onDelete }) {
+            const [title, setTitle] = React.useState(t.title);
+            const [description, setDescription] = React.useState(t.description || '');
             const [assignee, setAssignee] = React.useState(t.assignee || '');
             const [status, setStatus] = React.useState(t.status);
 
             const save = () => {
-                api('/api/tickets/' + t.id, { method: 'PATCH', body: JSON.stringify({ assignee, status }) })
+                const payload = { title, description };
+                if (canAdmin) { payload.status = status; payload.assignee = assignee; }
+                api('/api/tickets/' + t.id, { method: 'PATCH', body: JSON.stringify(payload) })
                     .then(onChange).catch(err => alert(err.message));
+            };
+
+            const closeTicket = () => {
+                if (!canClose) return;
+                api('/api/tickets/' + t.id, { method: 'PATCH', body: JSON.stringify({ status: 'closed' }) })
+                    .then(onChange).catch(err => alert(err.message));
+            };
+
+            const del = () => {
+                if (!canAdmin) return;
+                if (!confirm('Ticket löschen?')) return;
+                api('/api/tickets/' + t.id, { method: 'DELETE' })
+                    .then(() => onDelete(t.id)).catch(err => alert(err.message));
             };
 
             return e('div', { className: 'card' },
                 e('div', { className: 'row', style: { justifyContent: 'space-between' } },
-                    e('strong', null, `#${t.id} ${t.title}`),
+                    e('strong', null, `#${t.id}`),
                     e('span', { className: 'badge' }, t.status)
                 ),
-                t.description ? e('p', null, t.description) : null,
-                e('p', { className: 'muted' }, `Zugewiesen an: ${t.assignee || '—'} · aktualisiert: ${new Date(t.updatedAt).toLocaleString()}`),
                 e('div', { className: 'row' },
-                    e('select', { value: status, onChange: (ev) => setStatus(ev.target.value) },
+                    e('input', { value: title, onChange: e => setTitle(e.target.value), style: { flex: 1, minWidth: 220 } })
+                ),
+                e('div', null, e('textarea', { value: description, onChange: e => setDescription(e.target.value), rows: 3, style: { width: '100%', marginTop: 8 } })),
+                e('p', { className: 'muted' }, `Erstellt von: ${t.createdBy || '—'} · aktualisiert: ${new Date(t.updatedAt).toLocaleString()}`),
+                e('div', { className: 'row' },
+                    e('select', { value: status, onChange: (ev) => setStatus(ev.target.value), disabled: !canAdmin },
                         ['open', 'in_progress', 'closed'].map(s => e('option', { key: s, value: s }, s))
                     ),
-                    e('input', { placeholder: 'Assignee', value: assignee, onChange: (ev) => setAssignee(ev.target.value), style: { flex: 1, minWidth: 160 } }),
+                    e('input', { placeholder: 'Assignee', value: assignee, onChange: (ev) => setAssignee(ev.target.value), style: { flex: 1, minWidth: 160 }, disabled: !canAdmin }),
                 ),
                 e('div', { className: 'actions', style: { marginTop: 10 } },
                     e('button', { onClick: save }, 'Speichern'),
-                    e('button', { className: 'secondary', onClick: () => onDelete(t.id) }, 'Löschen')
+                    canAdmin ? e('button', { className: 'secondary', onClick: del }, 'Löschen')
+                        : e('button', { className: 'secondary', onClick: closeTicket, disabled: t.status === 'closed' || !canClose }, 'Schließen')
                 )
             );
         }
 
         function App() {
-            const { tickets, setTickets, statusFilter, setStatusFilter, q, setQ, reload } = useTickets();
+            const [auth, setAuth] = React.useState(loadAuth());
+            const [tickets, setTickets] = React.useState([]);
+            const [statusFilter, setStatusFilter] = React.useState('');
+            const [q, setQ] = React.useState('');
+
+            const canAdmin = auth?.user?.role === 'admin';
+
+            const reload = React.useCallback(() => {
+                if (!auth) return;
+                const params = new URLSearchParams();
+                if (statusFilter) params.set('status', statusFilter);
+                if (q) params.set('q', q);
+                api('/api/tickets' + (params.toString() ? ('?' + params.toString()) : ''))
+                    .then(setTickets).catch(err => {
+                        if (String(err).includes('401')) { setAuth(null); clearAuth(); }
+                    });
+            }, [auth, statusFilter, q]);
+
+            React.useEffect(() => {
+                const el = document.getElementById('userBadge');
+                if (auth?.user) el.textContent = `Eingeloggt als ${auth.user.username} (${auth.user.role})`;
+                else el.textContent = 'Nicht angemeldet';
+            }, [auth]);
+
+            React.useEffect(() => { if (auth) reload(); }, [auth, reload]);
+
+            const logout = () => { clearAuth(); setAuth(null); setTickets([]); };
+
+            if (!auth) return e(Login, { onLogin: (a) => { setAuth(a); } });
 
             const onCreated = (t) => setTickets(prev => [t, ...prev]);
             const onChange = () => reload();
-            const onDelete = (id) => {
-                if (!confirm('Ticket löschen?')) return;
-                api('/api/tickets/' + id, { method: 'DELETE' })
-                    .then(() => setTickets(prev => prev.filter(x => x.id !== id)))
-                    .catch(err => alert(err.message));
-            };
+            const onDelete = (id) => setTickets(prev => prev.filter(x => x.id !== id));
 
             return e(React.Fragment, null,
-                e(NewTicket, { onCreated }),
-                e('div', { className: 'card' },
+                e('div', { className: 'card', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
                     e('div', { className: 'row' },
                         e('select', { value: statusFilter, onChange: e => setStatusFilter(e.target.value) },
                             e('option', { value: '' }, 'Status: alle'),
@@ -208,9 +271,17 @@
                         ),
                         e('input', { placeholder: 'Suche…', value: q, onChange: e => setQ(e.target.value), style: { flex: 1, minWidth: 220 } }),
                         e('button', { onClick: reload }, 'Aktualisieren')
-                    )
+                    ),
+                    e('button', { className: 'secondary', onClick: logout }, 'Logout')
                 ),
-                tickets.map(t => e(TicketCard, { key: t.id, t, onChange, onDelete }))
+                e(NewTicket, { onCreated }),
+                tickets.map(t => e(TicketCard, {
+                    key: t.id, t,
+                    canAdmin,
+                    // user darf schließen/ändern wenn er Ersteller ist
+                    canClose: canAdmin || (auth?.user?.username && t.createdBy === auth.user.username),
+                    onChange, onDelete
+                }))
             );
         }
 

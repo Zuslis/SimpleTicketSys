@@ -1,0 +1,2 @@
+/api/*    https://simpleticketsys.onrender.com/api/:splat   200
+/healthz  https://simpleticketsys.onrender.com/healthz      200
