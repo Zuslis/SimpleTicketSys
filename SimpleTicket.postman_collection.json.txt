@@ -1,0 +1,178 @@
+{
+  "info": {
+    "_postman_id": "6b2a9d8e-3fdf-4c2c-9b9a-collection",
+    "name": "SimpleTicket – Render",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Tests für SimpleTicket (Render Backend + SPA)"
+  },
+  "item": [
+    {
+      "name": "0) Healthcheck (Render)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/healthz", "host": ["{{base_url}}"], "path": ["healthz"] }
+      },
+      "response": [],
+      "event": [
+        { "listen": "test",
+          "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.code === 200);",
+            "pm.test('ok==true', () => pm.response.json().ok === true);"
+          ], "type": "text/javascript" }
+        }
+      ]
+    },
+    {
+      "name": "1) Login as ADMIN",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\"username\":\"admin\",\"password\":\"admin123\"}" },
+        "url": { "raw": "{{base_url}}/api/login", "host": ["{{base_url}}"], "path": ["api","login"] }
+      },
+      "event": [
+        { "listen": "test",
+          "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.code === 200);",
+            "const data = pm.response.json();",
+            "pm.expect(data).to.have.property('token');",
+            "pm.environment.set('token_admin', data.token);"
+          ], "type": "text/javascript" }
+        }
+      ]
+    },
+    {
+      "name": "2) Login as USER",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\"username\":\"user\",\"password\":\"user123\"}" },
+        "url": { "raw": "{{base_url}}/api/login", "host": ["{{base_url}}"], "path": ["api","login"] }
+      },
+      "event": [
+        { "listen": "test",
+          "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.code === 200);",
+            "const data = pm.response.json();",
+            "pm.environment.set('token_user', data.token);"
+          ], "type": "text/javascript" }
+        }
+      ]
+    },
+    {
+      "name": "3) List tickets (ADMIN)",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token_admin}}" }],
+        "url": { "raw": "{{base_url}}/api/tickets", "host": ["{{base_url}}"], "path": ["api","tickets"] }
+      },
+      "event": [
+        { "listen": "test",
+          "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.code === 200);",
+            "pm.test('Array', () => Array.isArray(pm.response.json()));"
+          ], "type": "text/javascript" }
+        }
+      ]
+    },
+    {
+      "name": "4) Create ticket (USER)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token_user}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"title\":\"Beamer defekt\",\n  \"description\":\"Lampe im Besprechungsraum kaputt\"\n}" },
+        "url": { "raw": "{{base_url}}/api/tickets", "host": ["{{base_url}}"], "path": ["api","tickets"] }
+      },
+      "event": [
+        { "listen": "test",
+          "script": { "exec": [
+            "pm.test('201 Created', () => pm.response.code === 201);",
+            "const data = pm.response.json();",
+            "pm.environment.set('ticket_id', data.id);",
+            "pm.test('hat id', () => !!data.id);"
+          ], "type": "text/javascript" }
+        }
+      ]
+    },
+    {
+      "name": "5) User forbidden: set status=in_progress",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token_user}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{ \"status\": \"in_progress\" }" },
+        "url": { "raw": "{{base_url}}/api/tickets/{{ticket_id}}", "host": ["{{base_url}}"], "path": ["api","tickets","{{ticket_id}}"] }
+      },
+      "event": [
+        { "listen": "test",
+          "script": { "exec": [
+            "pm.test('403 Forbidden', () => pm.response.code === 403);"
+          ], "type": "text/javascript" }
+        }
+      ]
+    },
+    {
+      "name": "6) User allowed: close own ticket",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token_user}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{ \"status\": \"closed\" }" },
+        "url": { "raw": "{{base_url}}/api/tickets/{{ticket_id}}", "host": ["{{base_url}}"], "path": ["api","tickets","{{ticket_id}}"] }
+      },
+      "event": [
+        { "listen": "test",
+          "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.code === 200);",
+            "pm.test('closed', () => pm.response.json().status === 'closed');"
+          ], "type": "text/javascript" }
+        }
+      ]
+    },
+    {
+      "name": "7) Admin patch: assign + status",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token_admin}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{ \"status\": \"in_progress\", \"assignee\": \"dan\" }" },
+        "url": { "raw": "{{base_url}}/api/tickets/{{ticket_id}}", "host": ["{{base_url}}"], "path": ["api","tickets","{{ticket_id}}"] }
+      },
+      "event": [
+        { "listen": "test",
+          "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.code === 200);",
+            "const data = pm.response.json();",
+            "pm.test('in_progress', () => data.status === 'in_progress');",
+            "pm.test('assignee set', () => data.assignee === 'dan');"
+          ], "type": "text/javascript" }
+        }
+      ]
+    },
+    {
+      "name": "8) Admin delete",
+      "request": {
+        "method": "DELETE",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token_admin}}" }],
+        "url": { "raw": "{{base_url}}/api/tickets/{{ticket_id}}", "host": ["{{base_url}}"], "path": ["api","tickets","{{ticket_id}}"] }
+      },
+      "event": [
+        { "listen": "test",
+          "script": { "exec": [
+            "pm.test('204 No Content', () => pm.response.code === 204);"
+          ], "type": "text/javascript" }
+        }
+      ]
+    }
+  ]
+}
